@@ -11,6 +11,7 @@ const rateLimit = require('express-rate-limit');
 const airlineBlocksRoutes = require('./routes/airlineBlocks');
 const bookingsRoutes = require('./routes/bookings');
 const salesRegisterRoutes = require('./routes/salesRegister');
+const authRoutes = require('./routes/auth');
 const authMiddleware = require('./middleware/auth');
 const { startSyncWorker } = require('./services/googleSheetsSync');
 
@@ -22,6 +23,9 @@ app.use(express.json({ limit: '2mb' }));
 app.use(rateLimit({ windowMs: 60 * 1000, max: 300 })); // basic API abuse protection
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'alhuda-erp-backend' }));
+
+// Auth is public — you need it to get the token every other route requires
+app.use('/api/auth', authRoutes);
 
 // All ERP routes require a valid JWT (role-based checks happen inside each route)
 app.use('/api/airline-blocks', authMiddleware, airlineBlocksRoutes);
