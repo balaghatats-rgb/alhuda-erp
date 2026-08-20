@@ -27,8 +27,12 @@ let sheetsClient = null;
 
 async function getSheetsClient() {
   if (sheetsClient) return sheetsClient;
+  // GOOGLE_SERVICE_ACCOUNT_JSON holds the *entire contents* of the service
+  // account JSON key, pasted as one Render environment variable — this
+  // avoids needing to upload a file, which Render's free tier doesn't support.
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
   const auth = new google.auth.GoogleAuth({
-    keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    credentials,
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
   const authClient = await auth.getClient();
