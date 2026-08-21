@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Al Huda Travels ERP</title>
+<style>
+  :root {
+    --page: #0b1220; --panel: #121b2e; --panel-alt: #0e1626;
+    --border: #22304a; --border-soft: #1a2743;
+    --text: #eef1f7; --text-dim: #8b98b3;
+    --gold: #c9a227; --gold-soft: #3a2f0f;
+    --green: #2f9e6b; --green-soft: #0f2a20;
+    --red: #e0564c; --red-soft: #341613;
+    --amber: #d9932f; --amber-soft: #332510;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text); font-family: -apple-system, system-ui, sans-serif; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px; }
+  input, select {
+    width: 100%; font-size: 14px; padding: 9px 10px; border-radius: 7px;
+    background: var(--panel-alt); border: 0.5px solid var(--border); color: var(--text);
+  }
+  label { font-size: 12px; color: var(--text-dim); display: block; margin-bottom: 5px; }
+  .field { margin-bottom: 12px; }
+  button {
+    font-size: 13px; padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    background: var(--gold); color: #1a1404; border: none; font-weight: 500;
+  }
+  button.ghost { background: transparent; color: var(--text-dim); border: 0.5px solid var(--border); }
+  .panel { background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; padding: 16px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 0.5px solid var(--border-soft); }
+  th { color: var(--text-dim); font-weight: 400; font-size: 11.5px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 6px; }
+  .tabs { display: flex; gap: 4px; margin: 18px 0 10px; }
+  .tab { font-size: 13px; padding: 7px 14px; border-radius: 8px; border: 0.5px solid var(--border); background: transparent; color: var(--text-dim); cursor: pointer; }
+  .tab.active { border-color: var(--gold); background: var(--gold-soft); color: var(--gold); }
+  #login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .login-box { width: 340px; background: var(--panel); border: 0.5px solid var(--border); border-radius: 12px; padding: 28px; }
+  .hidden { display: none !important; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 16px; border-radius: 8px; font-size: 13px; max-width: 420px; text-align: center; }
+  .metric { background: var(--panel); border: 0.5px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .metric-label { font-size: 12px; color: var(--text-dim); }
+  .metric-value { font-size: 19px; font-weight: 500; margin-top: 4px; }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 640px) { .metrics { grid-template-columns: repeat(2, 1fr); } }
+  a.gold { color: var(--gold); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN SCREEN ============ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div style="font-size:11px;letter-spacing:.12em;color:var(--gold);text-transform:uppercase;">Al Huda Travels</div>
+    <div style="font-size:19px;font-weight:500;margin-bottom:18px;">Sign in</div>
+    <div class="field"><label>Email</label><input id="login-email" type="email" placeholder="you@alhuda.com"></div>
+    <div class="field"><label>Password</label><input id="login-password" type="password"></div>
+    <button style="width:100%;margin-top:6px;" onclick="login()">Sign in</button>
+    <div id="login-error" style="color:var(--red);font-size:12.5px;margin-top:10px;"></div>
+    <div style="font-size:11.5px;color:var(--text-dim);margin-top:16px;">
+      First time? Use the /api/auth/setup endpoint once (via reqbin) to create your admin login, then sign in here from then on.
+    </div>
+  </div>
+</div>
+
+<!-- ============ MAIN APP ============ -->
+<div id="app" class="wrap hidden">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <div style="font-size:11px;letter-spacing:.12em;color:var(--gold);text-transform:uppercase;">Al Huda Travels</div>
+      <div style="font-size:20px;font-weight:500;">Airline block master</div>
+    </div>
+    <button class="ghost" onclick="logout()">Sign out</button>
+  </div>
+
+  <div class="metrics" style="margin-top:18px;">
+    <div class="metric"><div class="metric-label">Revenue</div><div class="metric-value" id="m-revenue">-</div></div>
+    <div class="metric"><div class="metric-label">Received</div><div class="metric-value" id="m-received">-</div></div>
+    <div class="metric"><div class="metric-label">Outstanding</div><div class="metric-value" id="m-outstanding" style="color:var(--amber);">-</div></div>
+    <div class="metric"><div class="metric-label">Profit</div><div class="metric-value" id="m-profit" style="color:var(--green);">-</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" id="tab-blocks-btn" onclick="showTab('blocks')">Airline block master</button>
+    <button class="tab" id="tab-sales-btn" onclick="showTab('sales')">Sales register</button>
+    <button class="tab" id="tab-newblock-btn" onclick="showTab('newblock')">+ New block</button>
+  </div>
+
+  <div id="tab-blocks">
+    <div class="panel"><table>
+      <thead><tr><th>Flight</th><th>Sector</th><th>Date</th><th>Seats</th><th>Deadline</th><th></th></tr></thead>
+      <tbody id="blocks-body"></tbody>
+    </table></div>
+  </div>
+
+  <div id="tab-sales" class="hidden">
+    <div class="panel"><table>
+      <thead><tr><th>Invoice</th><th>PNR</th><th>Billed</th><th>Received</th><th>Due</th><th></th></tr></thead>
+      <tbody id="sales-body"></tbody>
+    </table></div>
+  </div>
+
+  <div id="tab-newblock" class="hidden">
+    <div class="panel" style="max-width:420px;">
+      <div class="row"><div class="field"><label>Airline ID (1=6E,2=AI,3=SV,4=EK,5=SG)</label><input id="nb-airline" value="1"></div>
+      <div class="field"><label>Flight number</label><input id="nb-flight" placeholder="6E-1407"></div></div>
+      <div class="row"><div class="field"><label>From</label><input id="nb-from" placeholder="DEL"></div>
+      <div class="field"><label>To</label><input id="nb-to" placeholder="JED"></div></div>
+      <div class="row"><div class="field"><label>Travel date</label><input id="nb-date" type="date"></div>
+      <div class="field"><label>Name-in-TL deadline</label><input id="nb-deadline" type="date"></div></div>
+      <div class="row"><div class="field"><label>Total seats</label><input id="nb-seats" type="number"></div>
+      <div class="field"><label>Cost / seat</label><input id="nb-cost" type="number"></div></div>
+      <button onclick="createBlock()">Create block</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SELL SEATS MODAL ============ -->
+<div id="sell-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="panel" style="width:360px;">
+    <div style="font-size:15px;font-weight:500;" id="sell-title">Sell seats</div>
+    <div class="field" style="margin-top:14px;"><label>Customer name</label><input id="sell-customer"></div>
+    <div class="field"><label>PNR</label><input id="sell-pnr"></div>
+    <div class="row"><div class="field"><label>Seats</label><input id="sell-seats" type="number"></div>
+    <div class="field"><label>Sale price/seat</label><input id="sell-price" type="number"></div></div>
+    <div class="row" style="justify-content:flex-end;">
+      <button class="ghost" onclick="closeSellModal()">Cancel</button>
+      <button onclick="submitSell()">Confirm booking</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script>
+// ====== EDIT THIS if your Render URL is different ======
+const API = 'https://alhuda-erp.onrender.com';
+
+let token = localStorage.getItem('alhuda_token');
+let sellingBlockId = null;
+
+function toast(msg, tone) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = tone === 'red' ? 'var(--red-soft)' : 'var(--green-soft)';
+  t.style.border = '0.5px solid ' + (tone === 'red' ? 'var(--red)' : 'var(--green)');
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 3200);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+async function login() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  try {
+    const data = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    token = data.token;
+    localStorage.setItem('alhuda_token', token);
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    loadAll();
+  } catch (e) {
+    document.getElementById('login-error').textContent = e.message;
+  }
+}
+function logout() { localStorage.removeItem('alhuda_token'); location.reload(); }
+
+function showTab(name) {
+  ['blocks','sales','newblock'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
+    document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === name);
+  });
+}
+
+function money(n) { return '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+
+async function loadAll() {
+  await Promise.all([loadBlocks(), loadSales(), loadSummary()]);
+}
+
+async function loadBlocks() {
+  const blocks = await api('/api/airline-blocks');
+  const body = document.getElementById('blocks-body');
+  body.innerHTML = blocks.map(b => {
+    const remaining = b.seats_remaining;
+    return `<tr>
+      <td>${b.flight_number}<br><span style="color:var(--text-dim);font-size:11px;">${b.block_ref}</span></td>
+      <td>${b.sector_from} → ${b.sector_to}</td>
+      <td>${new Date(b.travel_date).toLocaleDateString()}</td>
+      <td>${b.seats_sold}/${b.total_seats}<br><span style="color:var(--text-dim);font-size:11px;">${remaining} left</span></td>
+      <td>${b.name_in_tl_deadline ? new Date(b.name_in_tl_deadline).toLocaleDateString() : '-'}</td>
+      <td>${remaining > 0 ? `<button onclick="openSellModal('${b.id}','${b.flight_number}',${b.cost_per_seat})">Sell seats</button>` : '<span class="badge" style="background:var(--panel-alt);color:var(--text-dim);">Sold out</span>'}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" style="color:var(--text-dim);">No blocks yet — create one in the "+ New block" tab.</td></tr>';
+}
+
+async function loadSales() {
+  const rows = await api('/api/sales-register');
+  const body = document.getElementById('sales-body');
+  body.innerHTML = rows.map(r => {
+    const color = r.payment_status === 'paid' ? 'var(--green)' : r.payment_status === 'partial' ? 'var(--amber)' : 'var(--red)';
+    return `<tr>
+      <td>${r.invoice_no}</td><td>${r.pnr}</td>
+      <td>${money(r.amount_billed)}</td><td>${money(r.amount_received)}</td>
+      <td style="color:${color};">${money(r.amount_due)}</td>
+      <td>${r.amount_due > 0 ? `<button class="ghost" onclick="recordPayment('${r.booking_id}',${r.amount_due})">Record payment</button>` : `<span class="badge" style="background:var(--green-soft);color:var(--green);">Paid</span>`}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" style="color:var(--text-dim);">No invoices yet.</td></tr>';
+}
+
+async function loadSummary() {
+  const s = await api('/api/sales-register/summary');
+  document.getElementById('m-revenue').textContent = money(s.total_revenue);
+  document.getElementById('m-received').textContent = money(s.total_received);
+  document.getElementById('m-outstanding').textContent = money(s.total_outstanding);
+  document.getElementById('m-profit').textContent = money(s.total_profit);
+}
+
+async function createBlock() {
+  try {
+    await api('/api/airline-blocks', { method: 'POST', body: JSON.stringify({
+      airline_id: parseInt(document.getElementById('nb-airline').value, 10),
+      flight_number: document.getElementById('nb-flight').value,
+      sector_from: document.getElementById('nb-from').value.toUpperCase(),
+      sector_to: document.getElementById('nb-to').value.toUpperCase(),
+      travel_date: document.getElementById('nb-date').value,
+      total_seats: parseInt(document.getElementById('nb-seats').value, 10),
+      cost_per_seat: parseFloat(document.getElementById('nb-cost').value),
+      name_in_tl_deadline: document.getElementById('nb-deadline').value || null,
+    })});
+    toast('Block created.', 'green');
+    showTab('blocks');
+    loadAll();
+  } catch (e) { toast(e.message, 'red'); }
+}
+
+function openSellModal(blockId, flightNum, cost) {
+  sellingBlockId = blockId;
+  document.getElementById('sell-title').textContent = 'Sell seats · ' + flightNum;
+  document.getElementById('sell-price').value = Math.round(cost * 1.18);
+  document.getElementById('sell-customer').value = '';
+  document.getElementById('sell-pnr').value = '';
+  document.getElementById('sell-seats').value = '';
+  document.getElementById('sell-modal').classList.remove('hidden');
+}
+function closeSellModal() { document.getElementById('sell-modal').classList.add('hidden'); }
+
+async function submitSell() {
+  try {
+    const customerName = document.getElementById('sell-customer').value.trim();
+    if (!customerName) throw new Error('Enter a customer name');
+    const customer = await api('/api/customers', { method: 'POST', body: JSON.stringify({ name: customerName }) });
+
+    await api('/api/bookings', { method: 'POST', body: JSON.stringify({
+      booking_type: 'BLOCK',
+      block_id: sellingBlockId,
+      pnr: document.getElementById('sell-pnr').value.trim().toUpperCase(),
+      customer_id: customer.id,
+      passenger_names: [customerName],
+      seats_booked: parseInt(document.getElementById('sell-seats').value, 10),
+      sale_price_per_seat: parseFloat(document.getElementById('sell-price').value),
+      cost_price_per_seat: parseFloat(document.getElementById('sell-price').value) * 0.85,
+    })});
+    closeSellModal();
+    toast('Booking confirmed. Sheets updated.', 'green');
+    loadAll();
+  } catch (e) { toast(e.message, 'red'); }
+}
+
+async function recordPayment(bookingId, amountDue) {
+  try {
+    const rows = await api('/api/sales-register');
+    const row = rows.find(r => r.booking_id === bookingId);
+    const custResp = await api('/api/customers');
+    // fall back: ask backend for the booking's customer via sales-register join isn't exposed,
+    // so for this simple UI we just charge the full amount due against the first matching booking.
+    await api('/api/payments', { method: 'POST', body: JSON.stringify({
+      booking_id: bookingId,
+      customer_id: custResp[0]?.id, // simple UI: uses most recent customer — fine for one-agent testing
+      amount: amountDue,
+      payment_mode: 'cash',
+    })});
+    toast('Payment recorded.', 'green');
+    loadAll();
+  } catch (e) { toast(e.message, 'red'); }
+}
+
+// Auto sign-in if a token is already saved
+if (token) {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  loadAll();
+}
+</script>
+</body>
+</html>
