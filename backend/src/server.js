@@ -12,6 +12,8 @@ const airlineBlocksRoutes = require('./routes/airlineBlocks');
 const bookingsRoutes = require('./routes/bookings');
 const salesRegisterRoutes = require('./routes/salesRegister');
 const authRoutes = require('./routes/auth');
+const customersRoutes = require('./routes/customers');
+const paymentsRoutes = require('./routes/payments');
 const authMiddleware = require('./middleware/auth');
 const { startSyncWorker } = require('./services/googleSheetsSync');
 
@@ -31,6 +33,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/airline-blocks', authMiddleware, airlineBlocksRoutes);
 app.use('/api/bookings', authMiddleware, bookingsRoutes);
 app.use('/api/sales-register', authMiddleware, salesRegisterRoutes);
+app.use('/api/customers', authMiddleware, customersRoutes);
+app.use('/api/payments', authMiddleware, paymentsRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err);
