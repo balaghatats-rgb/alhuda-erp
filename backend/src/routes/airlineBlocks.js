@@ -4,11 +4,6 @@ const { pool } = require('../db');
 const { requireRole } = require('../middleware/auth');
 const { suggestSellPrice } = require('../services/aiPricing');
 
-/**
- * GET /api/airline-blocks
- * Live availability across all blocks — powers the Airline Block Master grid
- * and the dashboard's "seats remaining" widgets. Supports filters.
- */
 router.get('/', async (req, res, next) => {
   try {
     const { status, airline, from_date, to_date } = req.query;
@@ -28,20 +23,13 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-/**
- * POST /api/airline-blocks
- * Create a new block. Auto-generates block_ref if not supplied and
- * returns an AI-suggested sell price based on historical fares for
- * the same sector (see services/aiPricing.js).
- */
 router.post('/', requireRole(['admin', 'manager']), async (req, res, next) => {
   const client = await pool.connect();
   try {
     const {
       airline_id, flight_number, travel_date, total_seats, cost_per_seat, name_in_tl_deadline,
       return_date, return_flight_number,
-      outbound_departure_time, outbound_arrival_time,
-      return_departure_time, return_arrival_time,
+      outbound_timing, return_timing,
       supplier, payment_due_date, remarks,
       group_pnr, outbound_sector_route, return_sector_route
     } = req.body;
@@ -50,9 +38,6 @@ router.post('/', requireRole(['admin', 'manager']), async (req, res, next) => {
       return res.status(400).json({ error: 'Missing required block fields' });
     }
 
-    // Derive simple from/to airport codes from the via route string, e.g.
-    // "SXR-DEL-JED" -> sector_from = SXR, sector_to = JED. Used by AI pricing
-    // and reporting; the full route is preserved separately for display.
     const outSegs = outbound_sector_route.split('-').map(s => s.trim().toUpperCase()).filter(Boolean);
     const sector_from = outSegs[0];
     const sector_to = outSegs[outSegs.length - 1];
@@ -73,16 +58,14 @@ router.post('/', requireRole(['admin', 'manager']), async (req, res, next) => {
         (block_ref, group_pnr, airline_id, flight_number, sector_from, sector_to, outbound_sector_route, travel_date,
          total_seats, cost_per_seat, name_in_tl_deadline, created_by,
          return_date, return_sector_from, return_sector_to, return_sector_route, return_flight_number,
-         outbound_departure_time, outbound_arrival_time,
-         return_departure_time, return_arrival_time,
+         outbound_timing, return_timing,
          supplier, payment_due_date, remarks)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
        RETURNING *`,
       [block_ref, group_pnr || null, airline_id, flight_number, sector_from, sector_to, outbound_sector_route, travel_date,
        total_seats, cost_per_seat, name_in_tl_deadline || null, req.user.id,
        return_date || null, return_sector_from, return_sector_to, return_sector_route || null, return_flight_number || null,
-       outbound_departure_time || null, outbound_arrival_time || null,
-       return_departure_time || null, return_arrival_time || null,
+       outbound_timing || null, return_timing || null,
        supplier || null, payment_due_date || null, remarks || null]
     );
 
@@ -100,13 +83,14 @@ router.post('/', requireRole(['admin', 'manager']), async (req, res, next) => {
   }
 });
 
-/**
- * PATCH /api/airline-blocks/:id
- * Edit block details (e.g. extend name-in-TL deadline, close a block).
- */
 router.patch('/:id', requireRole(['admin', 'manager']), async (req, res, next) => {
   try {
-    const allowedFields = ['total_seats', 'cost_per_seat', 'name_in_tl_deadline', 'status'];
+    const allowedFields = [
+      'total_seats', 'cost_per_seat', 'name_in_tl_deadline', 'status',
+      'flight_number', 'return_flight_number', 'outbound_sector_route', 'return_sector_route',
+      'travel_date', 'return_date', 'outbound_timing', 'return_timing',
+      'group_pnr', 'supplier', 'payment_due_date', 'remarks'
+    ];
     const updates = [];
     const params = [];
 
@@ -128,11 +112,18 @@ router.patch('/:id', requireRole(['admin', 'manager']), async (req, res, next) =
   } catch (err) { next(err); }
 });
 
-/**
- * GET /api/airline-blocks/alerts/name-deadlines
- * Blocks whose name-in-TL deadline is within N days and still has unsold seats —
- * feeds the dashboard's "smart reminders" panel.
- */
+router.delete('/:id', requireRole(['admin', 'manager']), async (req, res, next) => {
+  try {
+    const { rows: [block] } = await pool.query('SELECT seats_sold FROM airline_blocks WHERE id = $1', [req.params.id]);
+    if (!block) return res.status(404).json({ error: 'Block not found' });
+    if (block.seats_sold > 0) {
+      return res.status(400).json({ error: 'Cannot delete a block with existing bookings — cancel those bookings first.' });
+    }
+    await pool.query('DELETE FROM airline_blocks WHERE id = $1', [req.params.id]);
+    res.status(204).send();
+  } catch (err) { next(err); }
+});
+
 router.get('/alerts/name-deadlines', async (req, res, next) => {
   try {
     const days = parseInt(req.query.days || '5', 10);
