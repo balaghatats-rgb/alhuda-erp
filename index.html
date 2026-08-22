@@ -48,6 +48,13 @@
   .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   @media (max-width: 640px) { .metrics { grid-template-columns: repeat(2, 1fr); } }
   a.gold { color: var(--gold); text-decoration: none; }
+  .req-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .req-card { border: 0.5px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel-alt); }
+  .req-card-head { background: var(--gold-soft); color: var(--gold); font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 7px 9px; border-bottom: 0.5px solid var(--border); }
+  .req-card input, .req-card select { border: none; border-radius: 0; background: transparent; padding: 9px; font-size: 13.5px; }
+  .req-card input:read-only { color: var(--text-dim); }
+  .req-section-label { font-size: 11px; color: var(--gold); text-transform: uppercase; letter-spacing: .08em; margin: 18px 0 8px; }
+  .req-section-label:first-child { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -106,16 +113,56 @@
   </div>
 
   <div id="tab-newblock" class="hidden">
-    <div class="panel" style="max-width:420px;">
-      <div class="row"><div class="field"><label>Airline ID (1=6E,2=AI,3=SV,4=EK,5=SG)</label><input id="nb-airline" value="1"></div>
-      <div class="field"><label>Flight number</label><input id="nb-flight" placeholder="6E-1407"></div></div>
-      <div class="row"><div class="field"><label>From</label><input id="nb-from" placeholder="DEL"></div>
-      <div class="field"><label>To</label><input id="nb-to" placeholder="JED"></div></div>
-      <div class="row"><div class="field"><label>Travel date</label><input id="nb-date" type="date"></div>
-      <div class="field"><label>Name-in-TL deadline</label><input id="nb-deadline" type="date"></div></div>
-      <div class="row"><div class="field"><label>Total seats</label><input id="nb-seats" type="number"></div>
-      <div class="field"><label>Cost / seat</label><input id="nb-cost" type="number"></div></div>
-      <button onclick="createBlock()">Create block</button>
+    <div class="panel" style="max-width:760px;">
+
+      <div class="req-section-label">Reference &amp; airline</div>
+      <div class="req-grid">
+        <div class="req-card"><div class="req-card-head">Grp / Block Ref</div><input id="nb-ref" placeholder="Auto if left blank"></div>
+        <div class="req-card"><div class="req-card-head">Airline</div>
+          <select id="nb-airline">
+            <option value="1">IndiGo (6E)</option><option value="2">Air India (AI)</option>
+            <option value="3">Saudia (SV)</option><option value="4">Emirates (EK)</option>
+            <option value="5">SpiceJet (SG)</option>
+          </select></div>
+        <div class="req-card"><div class="req-card-head">Status</div>
+          <select id="nb-status"><option value="open">Open</option><option value="closed">Closed</option><option value="cancelled">Cancelled</option></select></div>
+      </div>
+
+      <div class="req-section-label">Outbound</div>
+      <div class="req-grid">
+        <div class="req-card"><div class="req-card-head">Sector From</div><input id="nb-from" placeholder="DEL" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="req-card"><div class="req-card-head">Sector To</div><input id="nb-to" placeholder="JED" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="req-card"><div class="req-card-head">Flight No</div><input id="nb-flight" placeholder="6E-1407"></div>
+        <div class="req-card"><div class="req-card-head">Departure Date</div><input id="nb-date" type="date" onchange="recalcDays()"></div>
+        <div class="req-card"><div class="req-card-head">Departure Time</div><input id="nb-dep-time" type="time"></div>
+        <div class="req-card"><div class="req-card-head">Arrival Time</div><input id="nb-arr-time" type="time"></div>
+      </div>
+
+      <div class="req-section-label">Return</div>
+      <div class="req-grid">
+        <div class="req-card"><div class="req-card-head">Sector From</div><input id="nb-ret-from" placeholder="JED" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="req-card"><div class="req-card-head">Sector To</div><input id="nb-ret-to" placeholder="DEL" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="req-card"><div class="req-card-head">Flight No</div><input id="nb-ret-flight" placeholder="6E-1408"></div>
+        <div class="req-card"><div class="req-card-head">Return Date</div><input id="nb-ret-date" type="date" onchange="recalcDays()"></div>
+        <div class="req-card"><div class="req-card-head">Departure Time</div><input id="nb-ret-dep-time" type="time"></div>
+        <div class="req-card"><div class="req-card-head">Arrival Time</div><input id="nb-ret-arr-time" type="time"></div>
+        <div class="req-card"><div class="req-card-head">No. of Days</div><input id="nb-days" readonly value="-"></div>
+      </div>
+
+      <div class="req-section-label">Purchase &amp; payment</div>
+      <div class="req-grid">
+        <div class="req-card"><div class="req-card-head">Total Seats</div><input id="nb-seats" type="number" oninput="recalcTotal()"></div>
+        <div class="req-card"><div class="req-card-head">Price / Seat</div><input id="nb-cost" type="number" oninput="recalcTotal()"></div>
+        <div class="req-card"><div class="req-card-head">Total Purchase Amt</div><input id="nb-total" readonly value="-"></div>
+        <div class="req-card"><div class="req-card-head">Purchased From</div><input id="nb-supplier" placeholder="Supplier name"></div>
+        <div class="req-card"><div class="req-card-head">Payment Due Date</div><input id="nb-paydue" type="date"></div>
+        <div class="req-card"><div class="req-card-head">Naming T/L</div><input id="nb-deadline" type="date"></div>
+      </div>
+
+      <div class="req-section-label">Remarks</div>
+      <textarea id="nb-remarks" rows="2" style="width:100%;font-size:13.5px;padding:9px;border-radius:7px;background:var(--panel-alt);border:0.5px solid var(--border);color:var(--text);"></textarea>
+
+      <button style="margin-top:16px;" onclick="createBlock()">Create block request</button>
     </div>
   </div>
 
@@ -255,17 +302,45 @@ async function loadSummary() {
   document.getElementById('m-profit').textContent = money(s.total_profit);
 }
 
+function recalcDays() {
+  const dep = document.getElementById('nb-date').value;
+  const ret = document.getElementById('nb-ret-date').value;
+  const out = document.getElementById('nb-days');
+  if (!dep || !ret) { out.value = '-'; return; }
+  const diff = Math.round((new Date(ret) - new Date(dep)) / 86400000);
+  out.value = diff >= 0 ? diff : '-';
+}
+
+function recalcTotal() {
+  const seats = parseFloat(document.getElementById('nb-seats').value) || 0;
+  const cost = parseFloat(document.getElementById('nb-cost').value) || 0;
+  document.getElementById('nb-total').value = seats && cost ? money(seats * cost) : '-';
+}
+
 async function createBlock() {
   try {
     await api('/api/airline-blocks', { method: 'POST', body: JSON.stringify({
+      block_ref: document.getElementById('nb-ref').value.trim() || undefined,
       airline_id: parseInt(document.getElementById('nb-airline').value, 10),
+      status: document.getElementById('nb-status').value,
       flight_number: document.getElementById('nb-flight').value,
       sector_from: document.getElementById('nb-from').value.toUpperCase(),
       sector_to: document.getElementById('nb-to').value.toUpperCase(),
       travel_date: document.getElementById('nb-date').value,
+      outbound_departure_time: document.getElementById('nb-dep-time').value || null,
+      outbound_arrival_time: document.getElementById('nb-arr-time').value || null,
+      return_sector_from: document.getElementById('nb-ret-from').value.toUpperCase() || null,
+      return_sector_to: document.getElementById('nb-ret-to').value.toUpperCase() || null,
+      return_flight_number: document.getElementById('nb-ret-flight').value || null,
+      return_date: document.getElementById('nb-ret-date').value || null,
+      return_departure_time: document.getElementById('nb-ret-dep-time').value || null,
+      return_arrival_time: document.getElementById('nb-ret-arr-time').value || null,
       total_seats: parseInt(document.getElementById('nb-seats').value, 10),
       cost_per_seat: parseFloat(document.getElementById('nb-cost').value),
+      supplier: document.getElementById('nb-supplier').value || null,
+      payment_due_date: document.getElementById('nb-paydue').value || null,
       name_in_tl_deadline: document.getElementById('nb-deadline').value || null,
+      remarks: document.getElementById('nb-remarks').value || null,
     })});
     toast('Block created.', 'green');
     showTab('blocks');
