@@ -39,7 +39,11 @@ router.post('/', requireRole(['admin', 'manager']), async (req, res, next) => {
   try {
     const {
       airline_id, flight_number, sector_from, sector_to,
-      travel_date, total_seats, cost_per_seat, name_in_tl_deadline
+      travel_date, total_seats, cost_per_seat, name_in_tl_deadline,
+      return_date, return_sector_from, return_sector_to, return_flight_number,
+      outbound_departure_time, outbound_arrival_time,
+      return_departure_time, return_arrival_time,
+      supplier, payment_due_date, remarks
     } = req.body;
 
     if (!airline_id || !flight_number || !sector_from || !sector_to || !travel_date || !total_seats || cost_per_seat == null) {
@@ -54,11 +58,19 @@ router.post('/', requireRole(['admin', 'manager']), async (req, res, next) => {
     const { rows } = await client.query(
       `INSERT INTO airline_blocks
         (block_ref, airline_id, flight_number, sector_from, sector_to, travel_date,
-         total_seats, cost_per_seat, name_in_tl_deadline, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         total_seats, cost_per_seat, name_in_tl_deadline, created_by,
+         return_date, return_sector_from, return_sector_to, return_flight_number,
+         outbound_departure_time, outbound_arrival_time,
+         return_departure_time, return_arrival_time,
+         supplier, payment_due_date, remarks)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        RETURNING *`,
       [block_ref, airline_id, flight_number, sector_from, sector_to, travel_date,
-       total_seats, cost_per_seat, name_in_tl_deadline || null, req.user.id]
+       total_seats, cost_per_seat, name_in_tl_deadline || null, req.user.id,
+       return_date || null, return_sector_from || null, return_sector_to || null, return_flight_number || null,
+       outbound_departure_time || null, outbound_arrival_time || null,
+       return_departure_time || null, return_arrival_time || null,
+       supplier || null, payment_due_date || null, remarks || null]
     );
 
     const suggestedPrice = await suggestSellPrice(client, { sector_from, sector_to, cost_per_seat });
