@@ -3,13 +3,6 @@ const router = express.Router();
 const { pool } = require('../db');
 const { checkDuplicatePnr } = require('../services/duplicatePnr');
 
-/**
- * POST /api/bookings
- * Creates a booking against a block (or FIT). This single insert is what
- * cascades everywhere: DB triggers decrement block seats, create the
- * Sales Register invoice, and queue the row for Google Sheets sync —
- * the caller does not need to touch any other table.
- */
 router.post('/', async (req, res, next) => {
   const client = await pool.connect();
   try {
@@ -22,8 +15,6 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ error: 'Missing required booking fields' });
     }
 
-    // AI duplicate-PNR check: flags exact duplicates on the same block AND
-    // near-duplicate PNRs across other open blocks that are likely data-entry errors.
     const dupWarning = await checkDuplicatePnr(pool, { pnr, block_id });
     if (dupWarning.exactDuplicate) {
       return res.status(409).json({ error: 'Duplicate PNR on this block', details: dupWarning });
@@ -82,6 +73,56 @@ router.get('/', async (req, res, next) => {
     );
     res.json(rows);
   } catch (err) { next(err); }
+});
+
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const allowed = ['pnr', 'passenger_names', 'sale_price_per_seat', 'cost_price_per_seat', 'booking_status'];
+    const updates = [];
+    const params = [];
+    for (const field of allowed) {
+      if (req.body[field] !== undefined) {
+        params.push(field === 'passenger_names' ? JSON.stringify(req.body[field]) : req.body[field]);
+        updates.push(`${field} = $${params.length}`);
+      }
+    }
+    if (!updates.length) return res.status(400).json({ error: 'No valid fields to update' });
+
+    params.push(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE bookings SET ${updates.join(', ')}, updated_at = now()
+       WHERE id = $${params.length} RETURNING *`, params
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Booking not found' });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+});
+
+router.delete('/:id', async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: [booking] } = await client.query('SELECT * FROM bookings WHERE id = $1 FOR UPDATE', [req.params.id]);
+    if (!booking) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Booking not found' }); }
+
+    if (booking.block_id && booking.booking_status === 'confirmed') {
+      await client.query(
+        'UPDATE airline_blocks SET seats_sold = seats_sold - $1, updated_at = now() WHERE id = $2',
+        [booking.seats_booked, booking.block_id]
+      );
+    }
+    await client.query('DELETE FROM payments WHERE booking_id = $1', [req.params.id]);
+    await client.query('DELETE FROM sales_register WHERE booking_id = $1', [req.params.id]);
+    await client.query('DELETE FROM bookings WHERE id = $1', [req.params.id]);
+
+    await client.query('COMMIT');
+    res.status(204).send();
+  } catch (err) {
+    await client.query('ROLLBACK');
+    next(err);
+  } finally {
+    client.release();
+  }
 });
 
 module.exports = router;
