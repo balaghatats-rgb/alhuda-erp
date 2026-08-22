@@ -258,7 +258,7 @@ function showTab(name) {
   });
 }
 
-function money(n) { return '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+function money(n) { return '₹' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
 
 async function loadAll() {
   await Promise.all([loadBlocks(), loadSales(), loadSummary()]);
@@ -270,12 +270,12 @@ async function loadBlocks() {
   body.innerHTML = blocks.map(b => {
     const remaining = b.seats_remaining;
     return `<tr>
-      <td>${b.flight_number}<br><span style="color:var(--text-dim);font-size:11px;">${b.block_ref}</span></td>
-      <td>${b.sector_from} → ${b.sector_to}</td>
-      <td>${new Date(b.travel_date).toLocaleDateString()}</td>
-      <td>${b.seats_sold}/${b.total_seats}<br><span style="color:var(--text-dim);font-size:11px;">${remaining} left</span></td>
-      <td>${b.name_in_tl_deadline ? new Date(b.name_in_tl_deadline).toLocaleDateString() : '-'}</td>
-      <td>${remaining > 0 ? `<button onclick="openSellModal('${b.id}','${b.flight_number}',${b.cost_per_seat})">Sell seats</button>` : '<span class="badge" style="background:var(--panel-alt);color:var(--text-dim);">Sold out</span>'}</td>
+      <td>₹{b.flight_number}<br><span style="color:var(--text-dim);font-size:11px;">₹{b.block_ref}</span></td>
+      <td>₹{b.sector_from} → ₹{b.sector_to}</td>
+      <td>₹{new Date(b.travel_date).toLocaleDateString()}</td>
+      <td>₹{b.seats_sold}/₹{b.total_seats}<br><span style="color:var(--text-dim);font-size:11px;">₹{remaining} left</span></td>
+      <td>₹{b.name_in_tl_deadline ? new Date(b.name_in_tl_deadline).toLocaleDateString() : '-'}</td>
+      <td>₹{remaining > 0 ? `<button onclick="openSellModal('₹{b.id}','₹{b.flight_number}',₹{b.cost_per_seat})">Sell seats</button>` : '<span class="badge" style="background:var(--panel-alt);color:var(--text-dim);">Sold out</span>'}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="color:var(--text-dim);">No blocks yet — create one in the "+ New block" tab.</td></tr>';
 }
@@ -286,10 +286,10 @@ async function loadSales() {
   body.innerHTML = rows.map(r => {
     const color = r.payment_status === 'paid' ? 'var(--green)' : r.payment_status === 'partial' ? 'var(--amber)' : 'var(--red)';
     return `<tr>
-      <td>${r.invoice_no}</td><td>${r.pnr}</td>
-      <td>${money(r.amount_billed)}</td><td>${money(r.amount_received)}</td>
-      <td style="color:${color};">${money(r.amount_due)}</td>
-      <td>${r.amount_due > 0 ? `<button class="ghost" onclick="recordPayment('${r.booking_id}',${r.amount_due})">Record payment</button>` : `<span class="badge" style="background:var(--green-soft);color:var(--green);">Paid</span>`}</td>
+      <td>₹{r.invoice_no}</td><td>₹{r.pnr}</td>
+      <td>₹{money(r.amount_billed)}</td><td>₹{money(r.amount_received)}</td>
+      <td style="color:₹{color};">₹{money(r.amount_due)}</td>
+      <td>₹{r.amount_due > 0 ? `<button class="ghost" onclick="recordPayment('₹{r.booking_id}',₹{r.amount_due})">Record payment</button>` : `<span class="badge" style="background:var(--green-soft);color:var(--green);">Paid</span>`}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="color:var(--text-dim);">No invoices yet.</td></tr>';
 }
@@ -367,7 +367,7 @@ async function createFitTicket() {
       cost_price_per_seat: parseFloat(document.getElementById('fit-cost').value),
     })});
 
-    toast(`Ticket issued for ${pnr}. Invoice created, Sheets updated.`, 'green');
+    toast(`Ticket issued for ₹{pnr}. Invoice created, Sheets updated.`, 'green');
     document.getElementById('fit-customer').value = '';
     document.getElementById('fit-pnr').value = '';
     showTab('sales');
