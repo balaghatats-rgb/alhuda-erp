@@ -118,6 +118,7 @@
       <div class="req-section-label">Reference &amp; airline</div>
       <div class="req-grid">
         <div class="req-card"><div class="req-card-head">Grp / Block Ref</div><input id="nb-ref" placeholder="Auto if left blank"></div>
+        <div class="req-card"><div class="req-card-head">Group PNR</div><input id="nb-pnr" placeholder="e.g. X7QLMN" oninput="this.value=this.value.toUpperCase()"></div>
         <div class="req-card"><div class="req-card-head">Airline</div>
           <select id="nb-airline">
             <option value="1">IndiGo (6E)</option><option value="2">Air India (AI)</option>
@@ -130,9 +131,8 @@
 
       <div class="req-section-label">Outbound</div>
       <div class="req-grid">
-        <div class="req-card"><div class="req-card-head">Sector From</div><input id="nb-from" placeholder="DEL" oninput="this.value=this.value.toUpperCase()"></div>
-        <div class="req-card"><div class="req-card-head">Sector To</div><input id="nb-to" placeholder="JED" oninput="this.value=this.value.toUpperCase()"></div>
-        <div class="req-card"><div class="req-card-head">Flight No</div><input id="nb-flight" placeholder="6E-1407"></div>
+        <div class="req-card"><div class="req-card-head">Sector (via)</div><input id="nb-route" placeholder="SXR-DEL-JED" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="req-card"><div class="req-card-head">Flight No</div><input id="nb-flight" placeholder="6E 2747/63"></div>
         <div class="req-card"><div class="req-card-head">Departure Date</div><input id="nb-date" type="date" onchange="recalcDays()"></div>
         <div class="req-card"><div class="req-card-head">Departure Time</div><input id="nb-dep-time" type="time"></div>
         <div class="req-card"><div class="req-card-head">Arrival Time</div><input id="nb-arr-time" type="time"></div>
@@ -140,9 +140,8 @@
 
       <div class="req-section-label">Return</div>
       <div class="req-grid">
-        <div class="req-card"><div class="req-card-head">Sector From</div><input id="nb-ret-from" placeholder="JED" oninput="this.value=this.value.toUpperCase()"></div>
-        <div class="req-card"><div class="req-card-head">Sector To</div><input id="nb-ret-to" placeholder="DEL" oninput="this.value=this.value.toUpperCase()"></div>
-        <div class="req-card"><div class="req-card-head">Flight No</div><input id="nb-ret-flight" placeholder="6E-1408"></div>
+        <div class="req-card"><div class="req-card-head">Sector (via)</div><input id="nb-ret-route" placeholder="JED-DEL-SXR" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="req-card"><div class="req-card-head">Flight No</div><input id="nb-ret-flight" placeholder="6E 64/2137"></div>
         <div class="req-card"><div class="req-card-head">Return Date</div><input id="nb-ret-date" type="date" onchange="recalcDays()"></div>
         <div class="req-card"><div class="req-card-head">Departure Time</div><input id="nb-ret-dep-time" type="time"></div>
         <div class="req-card"><div class="req-card-head">Arrival Time</div><input id="nb-ret-arr-time" type="time"></div>
@@ -258,7 +257,7 @@ function showTab(name) {
   });
 }
 
-function money(n) { return '₹' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 }); }
+function money(n) { return '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 }); }
 
 async function loadAll() {
   await Promise.all([loadBlocks(), loadSales(), loadSummary()]);
@@ -270,12 +269,12 @@ async function loadBlocks() {
   body.innerHTML = blocks.map(b => {
     const remaining = b.seats_remaining;
     return `<tr>
-      <td>₹{b.flight_number}<br><span style="color:var(--text-dim);font-size:11px;">₹{b.block_ref}</span></td>
-      <td>₹{b.sector_from} → ₹{b.sector_to}</td>
-      <td>₹{new Date(b.travel_date).toLocaleDateString()}</td>
-      <td>₹{b.seats_sold}/₹{b.total_seats}<br><span style="color:var(--text-dim);font-size:11px;">₹{remaining} left</span></td>
-      <td>₹{b.name_in_tl_deadline ? new Date(b.name_in_tl_deadline).toLocaleDateString() : '-'}</td>
-      <td>₹{remaining > 0 ? `<button onclick="openSellModal('₹{b.id}','₹{b.flight_number}',₹{b.cost_per_seat})">Sell seats</button>` : '<span class="badge" style="background:var(--panel-alt);color:var(--text-dim);">Sold out</span>'}</td>
+      <td>${b.flight_number}<br><span style="color:var(--text-dim);font-size:11px;">${b.block_ref}${b.group_pnr ? ' · ' + b.group_pnr : ''}</span></td>
+      <td>${b.outbound_sector_route || (b.sector_from + ' → ' + b.sector_to)}</td>
+      <td>${new Date(b.travel_date).toLocaleDateString()}</td>
+      <td>${b.seats_sold}/${b.total_seats}<br><span style="color:var(--text-dim);font-size:11px;">${remaining} left</span></td>
+      <td>${b.name_in_tl_deadline ? new Date(b.name_in_tl_deadline).toLocaleDateString() : '-'}</td>
+      <td>${remaining > 0 ? `<button onclick="openSellModal('${b.id}','${b.flight_number}',${b.cost_per_seat})">Sell seats</button>` : '<span class="badge" style="background:var(--panel-alt);color:var(--text-dim);">Sold out</span>'}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="color:var(--text-dim);">No blocks yet — create one in the "+ New block" tab.</td></tr>';
 }
@@ -286,10 +285,10 @@ async function loadSales() {
   body.innerHTML = rows.map(r => {
     const color = r.payment_status === 'paid' ? 'var(--green)' : r.payment_status === 'partial' ? 'var(--amber)' : 'var(--red)';
     return `<tr>
-      <td>₹{r.invoice_no}</td><td>₹{r.pnr}</td>
-      <td>₹{money(r.amount_billed)}</td><td>₹{money(r.amount_received)}</td>
-      <td style="color:₹{color};">₹{money(r.amount_due)}</td>
-      <td>₹{r.amount_due > 0 ? `<button class="ghost" onclick="recordPayment('₹{r.booking_id}',₹{r.amount_due})">Record payment</button>` : `<span class="badge" style="background:var(--green-soft);color:var(--green);">Paid</span>`}</td>
+      <td>${r.invoice_no}</td><td>${r.pnr}</td>
+      <td>${money(r.amount_billed)}</td><td>${money(r.amount_received)}</td>
+      <td style="color:${color};">${money(r.amount_due)}</td>
+      <td>${r.amount_due > 0 ? `<button class="ghost" onclick="recordPayment('${r.booking_id}',${r.amount_due})">Record payment</button>` : `<span class="badge" style="background:var(--green-soft);color:var(--green);">Paid</span>`}</td>
     </tr>`;
   }).join('') || '<tr><td colspan="6" style="color:var(--text-dim);">No invoices yet.</td></tr>';
 }
@@ -321,16 +320,15 @@ async function createBlock() {
   try {
     await api('/api/airline-blocks', { method: 'POST', body: JSON.stringify({
       block_ref: document.getElementById('nb-ref').value.trim() || undefined,
+      group_pnr: document.getElementById('nb-pnr').value.trim() || null,
       airline_id: parseInt(document.getElementById('nb-airline').value, 10),
       status: document.getElementById('nb-status').value,
       flight_number: document.getElementById('nb-flight').value,
-      sector_from: document.getElementById('nb-from').value.toUpperCase(),
-      sector_to: document.getElementById('nb-to').value.toUpperCase(),
+      outbound_sector_route: document.getElementById('nb-route').value.toUpperCase(),
       travel_date: document.getElementById('nb-date').value,
       outbound_departure_time: document.getElementById('nb-dep-time').value || null,
       outbound_arrival_time: document.getElementById('nb-arr-time').value || null,
-      return_sector_from: document.getElementById('nb-ret-from').value.toUpperCase() || null,
-      return_sector_to: document.getElementById('nb-ret-to').value.toUpperCase() || null,
+      return_sector_route: document.getElementById('nb-ret-route').value.toUpperCase() || null,
       return_flight_number: document.getElementById('nb-ret-flight').value || null,
       return_date: document.getElementById('nb-ret-date').value || null,
       return_departure_time: document.getElementById('nb-ret-dep-time').value || null,
@@ -367,7 +365,7 @@ async function createFitTicket() {
       cost_price_per_seat: parseFloat(document.getElementById('fit-cost').value),
     })});
 
-    toast(`Ticket issued for ₹{pnr}. Invoice created, Sheets updated.`, 'green');
+    toast(`Ticket issued for ${pnr}. Invoice created, Sheets updated.`, 'green');
     document.getElementById('fit-customer').value = '';
     document.getElementById('fit-pnr').value = '';
     showTab('sales');
