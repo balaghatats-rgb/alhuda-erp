@@ -38,16 +38,29 @@ router.post('/', requireRole(['admin', 'manager']), async (req, res, next) => {
   const client = await pool.connect();
   try {
     const {
-      airline_id, flight_number, sector_from, sector_to,
-      travel_date, total_seats, cost_per_seat, name_in_tl_deadline,
-      return_date, return_sector_from, return_sector_to, return_flight_number,
+      airline_id, flight_number, travel_date, total_seats, cost_per_seat, name_in_tl_deadline,
+      return_date, return_flight_number,
       outbound_departure_time, outbound_arrival_time,
       return_departure_time, return_arrival_time,
-      supplier, payment_due_date, remarks
+      supplier, payment_due_date, remarks,
+      group_pnr, outbound_sector_route, return_sector_route
     } = req.body;
 
-    if (!airline_id || !flight_number || !sector_from || !sector_to || !travel_date || !total_seats || cost_per_seat == null) {
+    if (!airline_id || !flight_number || !outbound_sector_route || !travel_date || !total_seats || cost_per_seat == null) {
       return res.status(400).json({ error: 'Missing required block fields' });
+    }
+
+    // Derive simple from/to airport codes from the via route string, e.g.
+    // "SXR-DEL-JED" -> sector_from = SXR, sector_to = JED. Used by AI pricing
+    // and reporting; the full route is preserved separately for display.
+    const outSegs = outbound_sector_route.split('-').map(s => s.trim().toUpperCase()).filter(Boolean);
+    const sector_from = outSegs[0];
+    const sector_to = outSegs[outSegs.length - 1];
+    let return_sector_from = null, return_sector_to = null;
+    if (return_sector_route) {
+      const retSegs = return_sector_route.split('-').map(s => s.trim().toUpperCase()).filter(Boolean);
+      return_sector_from = retSegs[0];
+      return_sector_to = retSegs[retSegs.length - 1];
     }
 
     await client.query('BEGIN');
@@ -57,17 +70,17 @@ router.post('/', requireRole(['admin', 'manager']), async (req, res, next) => {
 
     const { rows } = await client.query(
       `INSERT INTO airline_blocks
-        (block_ref, airline_id, flight_number, sector_from, sector_to, travel_date,
+        (block_ref, group_pnr, airline_id, flight_number, sector_from, sector_to, outbound_sector_route, travel_date,
          total_seats, cost_per_seat, name_in_tl_deadline, created_by,
-         return_date, return_sector_from, return_sector_to, return_flight_number,
+         return_date, return_sector_from, return_sector_to, return_sector_route, return_flight_number,
          outbound_departure_time, outbound_arrival_time,
          return_departure_time, return_arrival_time,
          supplier, payment_due_date, remarks)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        RETURNING *`,
-      [block_ref, airline_id, flight_number, sector_from, sector_to, travel_date,
+      [block_ref, group_pnr || null, airline_id, flight_number, sector_from, sector_to, outbound_sector_route, travel_date,
        total_seats, cost_per_seat, name_in_tl_deadline || null, req.user.id,
-       return_date || null, return_sector_from || null, return_sector_to || null, return_flight_number || null,
+       return_date || null, return_sector_from, return_sector_to, return_sector_route || null, return_flight_number || null,
        outbound_departure_time || null, outbound_arrival_time || null,
        return_departure_time || null, return_arrival_time || null,
        supplier || null, payment_due_date || null, remarks || null]
