@@ -88,6 +88,7 @@
     <button class="tab active" id="tab-blocks-btn" onclick="showTab('blocks')">Airline block master</button>
     <button class="tab" id="tab-sales-btn" onclick="showTab('sales')">Sales register</button>
     <button class="tab" id="tab-newblock-btn" onclick="showTab('newblock')">+ New block</button>
+    <button class="tab" id="tab-fit-btn" onclick="showTab('fit')">+ FIT ticket</button>
   </div>
 
   <div id="tab-blocks">
@@ -115,6 +116,31 @@
       <div class="row"><div class="field"><label>Total seats</label><input id="nb-seats" type="number"></div>
       <div class="field"><label>Cost / seat</label><input id="nb-cost" type="number"></div></div>
       <button onclick="createBlock()">Create block</button>
+    </div>
+  </div>
+
+  <div id="tab-fit" class="hidden">
+    <div class="panel" style="max-width:420px;">
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:14px;">
+        For walk-in tickets not tied to any airline block — normal FIT sales, priced and costed individually per PNR.
+      </div>
+      <div class="field"><label>Customer name</label><input id="fit-customer" placeholder="Passenger or agent name"></div>
+      <div class="row"><div class="field"><label>Airline</label>
+        <select id="fit-airline">
+          <option value="1">IndiGo (6E)</option>
+          <option value="2">Air India (AI)</option>
+          <option value="3">Saudia (SV)</option>
+          <option value="4">Emirates (EK)</option>
+          <option value="5">SpiceJet (SG)</option>
+        </select></div>
+      <div class="field"><label>PNR</label><input id="fit-pnr" placeholder="e.g. X7QLMN"></div></div>
+      <div class="row"><div class="field"><label>Sector from</label><input id="fit-from" placeholder="DEL"></div>
+      <div class="field"><label>Sector to</label><input id="fit-to" placeholder="BOM"></div></div>
+      <div class="field"><label>Travel date</label><input id="fit-date" type="date"></div>
+      <div class="row"><div class="field"><label>Seats / passengers</label><input id="fit-seats" type="number" value="1"></div>
+      <div class="field"><label>Cost price / seat</label><input id="fit-cost" type="number"></div></div>
+      <div class="field"><label>Sale price / seat</label><input id="fit-sale" type="number"></div>
+      <button onclick="createFitTicket()">Issue ticket</button>
     </div>
   </div>
 </div>
@@ -179,7 +205,7 @@ async function login() {
 function logout() { localStorage.removeItem('alhuda_token'); location.reload(); }
 
 function showTab(name) {
-  ['blocks','sales','newblock'].forEach(t => {
+  ['blocks','sales','newblock','fit'].forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
     document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === name);
   });
@@ -243,6 +269,33 @@ async function createBlock() {
     })});
     toast('Block created.', 'green');
     showTab('blocks');
+    loadAll();
+  } catch (e) { toast(e.message, 'red'); }
+}
+
+async function createFitTicket() {
+  try {
+    const customerName = document.getElementById('fit-customer').value.trim();
+    const pnr = document.getElementById('fit-pnr').value.trim().toUpperCase();
+    if (!customerName || !pnr) throw new Error('Customer name and PNR are required');
+
+    const customer = await api('/api/customers', { method: 'POST', body: JSON.stringify({ name: customerName }) });
+
+    await api('/api/bookings', { method: 'POST', body: JSON.stringify({
+      booking_type: 'FIT',
+      block_id: null,
+      pnr,
+      customer_id: customer.id,
+      passenger_names: [customerName],
+      seats_booked: parseInt(document.getElementById('fit-seats').value, 10) || 1,
+      sale_price_per_seat: parseFloat(document.getElementById('fit-sale').value),
+      cost_price_per_seat: parseFloat(document.getElementById('fit-cost').value),
+    })});
+
+    toast(`Ticket issued for ${pnr}. Invoice created, Sheets updated.`, 'green');
+    document.getElementById('fit-customer').value = '';
+    document.getElementById('fit-pnr').value = '';
+    showTab('sales');
     loadAll();
   } catch (e) { toast(e.message, 'red'); }
 }
