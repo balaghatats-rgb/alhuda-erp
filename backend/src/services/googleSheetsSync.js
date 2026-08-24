@@ -2,16 +2,9 @@
  * GOOGLE SHEETS SYNC
  *
  * Every INSERT/UPDATE/DELETE on airline_blocks, bookings, sales_register,
- * and payments is queued into `sheets_sync_queue` by a Postgres trigger
- * (see database/schema.sql, fn_audit_and_queue_sync). This worker polls
- * that queue and mirrors each change into the matching Google Sheet tab,
- * so Sheets is always a real-time reflection of the ERP — never a manual export.
- *
- * Setup required (see README.md):
- *   1. Create a Google Cloud service account, enable the Sheets API.
- *   2. Share your target spreadsheet with the service account's email.
- *   3. Put the service account JSON key path in GOOGLE_APPLICATION_CREDENTIALS
- *      and the spreadsheet ID in GOOGLE_SHEET_ID (see .env.example).
+ * payments, cancellations, and refunds is queued into `sheets_sync_queue`
+ * by a Postgres trigger and mirrored into its matching Google Sheet tab —
+ * Sheets is always a real-time reflection of the ERP, never a manual export.
  */
 const { google } = require('googleapis');
 const { pool } = require('../db');
@@ -21,15 +14,14 @@ const SHEET_TAB_MAP = {
   bookings: 'Bookings',
   sales_register: 'Sales Register',
   payments: 'Payments',
+  cancellations: 'Cancellations',
+  refunds: 'Refunds',
 };
 
 let sheetsClient = null;
 
 async function getSheetsClient() {
   if (sheetsClient) return sheetsClient;
-  // GOOGLE_SERVICE_ACCOUNT_JSON holds the *entire contents* of the service
-  // account JSON key, pasted as one Render environment variable — this
-  // avoids needing to upload a file, which Render's free tier doesn't support.
   const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
   const auth = new google.auth.GoogleAuth({
     credentials,
@@ -40,35 +32,23 @@ async function getSheetsClient() {
   return sheetsClient;
 }
 
-/**
- * Upserts a row into the sheet by matching column A (the record's UUID).
- * DELETE actions clear the row's values but keep the row position, so
- * row numbers referenced elsewhere in the sheet (e.g. a dashboard formula)
- * don't shift unexpectedly.
- */
 async function upsertRow(sheets, spreadsheetId, tab, record) {
   const range = `${tab}!A:Z`;
   const existing = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   const rows = existing.data.values || [];
   const headerRow = rows[0] || Object.keys(record);
-  const idColIndex = 0; // column A = id, by convention across every tab
+  const idColIndex = 0;
 
   const rowIndex = rows.findIndex((r, i) => i > 0 && r[idColIndex] === record.id);
   const values = headerRow.map((col) => stringifyCell(record[col]));
 
   if (rowIndex === -1) {
     await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [values] },
+      spreadsheetId, range, valueInputOption: 'USER_ENTERED', requestBody: { values: [values] },
     });
   } else {
     await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${tab}!A${rowIndex + 1}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [values] },
+      spreadsheetId, range: `${tab}!A${rowIndex + 1}`, valueInputOption: 'USER_ENTERED', requestBody: { values: [values] },
     });
   }
 }
@@ -88,15 +68,9 @@ function stringifyCell(value) {
   return String(value);
 }
 
-/**
- * Drains up to `batchSize` pending sync events per tick. Marks each as
- * synced only after a successful write, so a Sheets API hiccup just
- * delays the next tick's retry rather than losing the event.
- */
 async function processQueueBatch(batchSize = 25) {
   const { rows: pending } = await pool.query(
-    `SELECT * FROM sheets_sync_queue WHERE synced = FALSE ORDER BY id ASC LIMIT $1`,
-    [batchSize]
+    `SELECT * FROM sheets_sync_queue WHERE synced = FALSE ORDER BY id ASC LIMIT $1`, [batchSize]
   );
   if (!pending.length) return;
 
@@ -106,7 +80,6 @@ async function processQueueBatch(batchSize = 25) {
   for (const event of pending) {
     const tab = SHEET_TAB_MAP[event.table_name];
     if (!tab) { await markSynced(event.id); continue; }
-
     try {
       if (event.action === 'DELETE') {
         await clearRow(sheets, spreadsheetId, tab, event.record_id);
@@ -115,9 +88,8 @@ async function processQueueBatch(batchSize = 25) {
       }
       await markSynced(event.id);
     } catch (err) {
-      // Leave unsynced — will retry next tick. Log for visibility/alerting.
       console.error(`Sheets sync failed for queue item ${event.id} (${event.table_name}):`, err.message);
-      break; // stop this batch on first failure to preserve ordering per tick
+      break;
     }
   }
 }
