@@ -215,6 +215,28 @@
 
 <div id="toast" class="toast hidden"></div>
 
+<!-- ============ CANCEL BOOKING MODAL ============ -->
+<div id="cancel-modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px;">
+  <div class="panel" style="width:360px;">
+    <div style="font-size:15px;font-weight:500;">Cancel booking</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-top:4px;">Billed amount: <span id="cancel-billed"></span></div>
+    <div class="field" style="margin-top:14px;">
+      <label>Cancellation type</label>
+      <select id="cancel-type" onchange="toggleCancelFeeField()">
+        <option value="FOC">FOC — Free of Charge (no fee, full refund)</option>
+        <option value="PAID">Paid Cancellation (fee deducted from refund)</option>
+        <option value="IROP">IROP — Irregular Operations (airline-caused, full refund)</option>
+      </select>
+    </div>
+    <div class="field hidden" id="cancel-fee-field"><label>Cancellation fee</label><input id="cancel-fee" type="number" value="0"></div>
+    <div class="field"><label>Reason (optional)</label><input id="cancel-reason"></div>
+    <div class="row" style="justify-content:flex-end;">
+      <button class="ghost" onclick="closeCancelModal()">Back</button>
+      <button onclick="submitCancel()">Confirm cancellation</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
 <script>
@@ -304,6 +326,7 @@ async function loadSales() {
       <td style="color:${color};">${money(r.amount_due)}</td>
       <td>${r.amount_due > 0 ? `<button class="ghost" onclick="recordPayment('${r.booking_id}',${r.amount_due})">Record payment</button>` : `<span class="badge" style="background:var(--green-soft);color:var(--green);">Paid</span>`}
         <button class="ghost" style="margin-left:6px;" onclick="editBooking('${r.booking_id}','${r.pnr}')">Edit</button>
+        <button class="ghost" style="margin-left:6px;color:var(--amber);" onclick="openCancelModal('${r.booking_id}',${r.amount_billed})">Cancel</button>
         <button class="ghost" style="margin-left:6px;color:var(--red);" onclick="deleteBooking('${r.booking_id}')">Delete</button>
       </td>
     </tr>`;
@@ -341,7 +364,7 @@ async function handleDocUpload(event) {
 
     const foundCount = Object.values(fields).filter(Boolean).length;
     statusEl.textContent = foundCount > 0
-      ? `Filled ${foundCount} field(s) from the document — please verify each one before saving.`
+      ? `Filled ${foundCount} field(s) from the document — please verify each one, especially via-routes and connecting-flight timings, before saving.`
       : 'Could not confidently detect any fields — please fill the form manually.';
   } catch (e) {
     statusEl.textContent = 'Could not read this file: ' + e.message;
@@ -384,31 +407,102 @@ async function extractTextFromPSD(file) {
 
 function guessFieldsFromText(text) {
   const clean = text.replace(/\s+/g, ' ');
-  const find = (re) => { const m = clean.match(re); return m ? m[1].trim() : null; };
+  const find = (re, source = clean) => { const m = source.match(re); return m ? m[1].trim() : null; };
+  const findAll = (re, source = clean) => [...source.matchAll(re)].map(m => m[1]);
+
+  const AIRPORT_BLACKLIST = new Set(['PNR','SSR','GRP','ADH','USD','INR','GST','TBD','ETC','TAX','FAR','TL','NO']);
+
+  // Split into outbound/return using the two "XXX-YYY" sector headings (e.g. SXR-JED, JED-SXR)
+  const headings = [...clean.matchAll(/\b([A-Z]{3})\s*-\s*([A-Z]{3})\b/g)];
+  let outboundText = clean, returnText = '', outFrom, outTo, retFrom, retTo;
+  if (headings.length >= 2) {
+    outboundText = clean.slice(0, headings[1].index);
+    returnText = clean.slice(headings[1].index);
+    [, outFrom, outTo] = headings[0];
+    [, retFrom, retTo] = headings[1];
+  } else if (headings.length === 1) {
+    [, outFrom, outTo] = headings[0];
+  }
+
+  // Detects a single intermediate stop between two known endpoints, e.g.
+  // finds "DEL" between SXR and JED from the connecting-flight breakdown.
+  function routeWithStop(section, from, to) {
+    if (!from || !to) return null;
+    const codes = findAll(/\b([A-Z]{3})\b/g, section).filter(c => !AIRPORT_BLACKLIST.has(c) && c !== from && c !== to);
+    return codes.length ? `${from}-${codes[0]}-${to}` : `${from}-${to}`;
+  }
+
+  function flightNoFrom(section) {
+    const m = section.match(/\b([A-Z0-9]{2})[\s-]?(\d{2,4}\s?\/\s?\d{2,4})\b/)
+           || section.match(/\b([A-Z0-9]{2})[\s-](\d{3,4})\b/);
+    return m ? `${m[1]} ${(m[2] || '').replace(/\s/g, '')}` : null;
+  }
+
+  // First departure–arrival time pair found (the summary row) — for a
+  // connecting flight this is the overall journey time, not each leg;
+  // add the second segment's time manually after the "/" if needed.
+  function timingFrom(section) {
+    const times = findAll(/\b(\d{1,2}:\d{2})\b/g, section);
+    return times.length >= 2 ? `${times[0]}-${times[1]}` : null;
+  }
+
+  function dateFrom(section) {
+    return find(/\b(\d{1,2}[\s-](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s-]\d{4})\b/i, section);
+  }
 
   return {
-    pnr: find(/\bPNR[:\s]+([A-Z0-9]{5,8})\b/i) || find(/\b(?:booking ref|reference)[:\s]+([A-Z0-9]{5,8})\b/i),
-    flight: find(/\b([A-Z0-9]{2}\s?\d{3,4}(?:\s?\/\s?\d{2,4})?)\b/),
-    route: find(/\b([A-Z]{3}(?:\s?-\s?[A-Z]{3}){1,3})\b/),
-    date: find(/\b(\d{1,2}[\/\-][A-Za-z0-9]{2,9}[\/\-]\d{2,4})\b/),
-    seats: find(/\b(?:seats?|pax|passengers?)[:\s]+(\d{1,3})\b/i),
-    price: find(/(?:₹|INR|Rs\.?)\s?([\d,]+(?:\.\d{1,2})?)/i),
-    supplier: find(/\b(?:supplier|purchased from|vendor)[:\s]+([A-Za-z0-9 &.]{3,40})\b/i),
+    block_ref: find(/\bRequest\s*id[:\s]+([A-Z0-9]{5,12})\b/i),
+    pnr: find(/\bPNR[:\s]+([A-Z0-9]{5,8})\b/i),
+    seats: find(/\bNo\.?\s*of\s*pax[:\s]+(\d{1,3})/i) || find(/\b(?:seats?|passengers?)[:\s]+(\d{1,3})\b/i),
+    price: find(/Adult\s*fare\s*\/?\s*pax[:\s]+(?:INR|Rs\.?)?\s?([\d,]+(?:\.\d{1,2})?)/i)
+        || find(/(?:₹|INR|Rs\.?)\s?([\d,]+(?:\.\d{1,2})?)/i),
+    supplier: find(/\b(?:supplier|purchased from|vendor|requested by)[:\s]+([A-Za-z0-9@.\- ]{3,40})\b/i),
+    payment_due: find(/\b(?:Request\s*Expiry|Payment\s*Due|Time\s*Limit)[:\s]+(\d{1,2}[\s-][A-Za-z]{3,9}[\s-]\d{4})/i),
+
+    outbound_route: routeWithStop(outboundText, outFrom, outTo),
+    outbound_flight: flightNoFrom(outboundText),
+    outbound_date: dateFrom(outboundText),
+    outbound_timing: timingFrom(outboundText),
+
+    return_route: returnText ? routeWithStop(returnText, retFrom, retTo) : null,
+    return_flight: returnText ? flightNoFrom(returnText) : null,
+    return_date: returnText ? dateFrom(returnText) : null,
+    return_timing: returnText ? timingFrom(returnText) : null,
   };
 }
 
+function setDateField(id, dateStr) {
+  if (!dateStr) return;
+  const m = dateStr.match(/(\d{1,2})[\s-]([A-Za-z]{3,9})[\s-](\d{4})/);
+  if (!m) return;
+  const months = { jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11 };
+  const key = m[2].slice(0, 3).toLowerCase();
+  if (!(key in months)) return;
+  const d = new Date(Date.UTC(parseInt(m[3], 10), months[key], parseInt(m[1], 10)));
+  document.getElementById(id).value = d.toISOString().slice(0, 10);
+}
+
 function applyGuessedFields(f) {
+  if (f.block_ref) document.getElementById('nb-ref').value = f.block_ref.toUpperCase();
   if (f.pnr) document.getElementById('nb-pnr').value = f.pnr.toUpperCase();
-  if (f.flight) document.getElementById('nb-flight').value = f.flight.toUpperCase();
-  if (f.route) document.getElementById('nb-route').value = f.route.replace(/\s/g, '').toUpperCase();
-  if (f.date) {
-    const parsed = new Date(f.date);
-    if (!isNaN(parsed)) document.getElementById('nb-date').value = parsed.toISOString().slice(0, 10);
-  }
+
+  if (f.outbound_flight) document.getElementById('nb-flight').value = f.outbound_flight.toUpperCase();
+  if (f.outbound_route) document.getElementById('nb-route').value = f.outbound_route;
+  setDateField('nb-date', f.outbound_date);
+  if (f.outbound_timing) document.getElementById('nb-timing').value = f.outbound_timing;
+
+  if (f.return_flight) document.getElementById('nb-ret-flight').value = f.return_flight.toUpperCase();
+  if (f.return_route) document.getElementById('nb-ret-route').value = f.return_route;
+  setDateField('nb-ret-date', f.return_date);
+  if (f.return_timing) document.getElementById('nb-ret-timing').value = f.return_timing;
+
   if (f.seats) document.getElementById('nb-seats').value = f.seats;
   if (f.price) document.getElementById('nb-cost').value = f.price.replace(/,/g, '');
   if (f.supplier) document.getElementById('nb-supplier').value = f.supplier.trim();
+  setDateField('nb-paydue', f.payment_due);
+
   recalcTotal();
+  recalcDays();
 }
 
 function recalcDays() {
@@ -450,6 +544,36 @@ async function createBlock() {
     })});
     toast('Block created.', 'green');
     showTab('blocks');
+    loadAll();
+  } catch (e) { toast(e.message, 'red'); }
+}
+
+let cancellingBookingId = null;
+
+function openCancelModal(bookingId, billedAmount) {
+  cancellingBookingId = bookingId;
+  document.getElementById('cancel-billed').textContent = money(billedAmount);
+  document.getElementById('cancel-type').value = 'FOC';
+  document.getElementById('cancel-fee').value = 0;
+  document.getElementById('cancel-reason').value = '';
+  toggleCancelFeeField();
+  document.getElementById('cancel-modal').classList.remove('hidden');
+}
+function closeCancelModal() { document.getElementById('cancel-modal').classList.add('hidden'); }
+function toggleCancelFeeField() {
+  document.getElementById('cancel-fee-field').classList.toggle('hidden', document.getElementById('cancel-type').value !== 'PAID');
+}
+
+async function submitCancel() {
+  try {
+    const body = {
+      cancellation_type: document.getElementById('cancel-type').value,
+      cancellation_fee: parseFloat(document.getElementById('cancel-fee').value) || 0,
+      reason: document.getElementById('cancel-reason').value || null,
+    };
+    const result = await api(`/api/bookings/${cancellingBookingId}/cancel`, { method: 'POST', body: JSON.stringify(body) });
+    closeCancelModal();
+    toast(`Cancelled. Refund of ${money(result.refund.refund_amount)} recorded — Sheets updated.`, 'green');
     loadAll();
   } catch (e) { toast(e.message, 'red'); }
 }
