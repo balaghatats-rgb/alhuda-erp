@@ -125,4 +125,55 @@ router.delete('/:id', async (req, res, next) => {
   }
 });
 
+router.post('/:id/cancel', async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { cancellation_type, cancellation_fee, reason } = req.body;
+    if (!['FOC', 'PAID', 'IROP'].includes(cancellation_type)) {
+      return res.status(400).json({ error: 'cancellation_type must be FOC, PAID, or IROP' });
+    }
+
+    await client.query('BEGIN');
+    const { rows: [booking] } = await client.query(
+      'SELECT * FROM bookings WHERE id = $1 FOR UPDATE', [req.params.id]
+    );
+    if (!booking) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Booking not found' }); }
+    if (booking.booking_status !== 'confirmed') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Only a confirmed booking can be cancelled' });
+    }
+
+    const fee = cancellation_type === 'PAID' ? Math.max(0, Number(cancellation_fee) || 0) : 0;
+    const refundAmount = Math.max(0, Number(booking.total_sale_amount) - fee);
+
+    await client.query(
+      `UPDATE bookings SET booking_status = 'cancelled', updated_at = now() WHERE id = $1`,
+      [req.params.id]
+    );
+    await client.query(
+      `UPDATE sales_register SET payment_status = 'refunded' WHERE booking_id = $1`,
+      [req.params.id]
+    );
+
+    const { rows: [cancellation] } = await client.query(
+      `INSERT INTO cancellations (booking_id, customer_id, cancellation_type, cancellation_fee, reason, cancelled_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.params.id, booking.customer_id, cancellation_type, fee, reason || null, req.user.id]
+    );
+    const { rows: [refund] } = await client.query(
+      `INSERT INTO refunds (cancellation_id, booking_id, customer_id, refund_amount, processed_by)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [cancellation.id, req.params.id, booking.customer_id, refundAmount, req.user.id]
+    );
+
+    await client.query('COMMIT');
+    res.status(201).json({ cancellation, refund });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
