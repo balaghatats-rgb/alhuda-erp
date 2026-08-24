@@ -94,6 +94,7 @@
   <div class="tabs">
     <button class="tab active" id="tab-blocks-btn" onclick="showTab('blocks')">Airline block master</button>
     <button class="tab" id="tab-sales-btn" onclick="showTab('sales')">Sales register</button>
+    <button class="tab" id="tab-newsale-btn" onclick="showTab('newsale')">+ New sale</button>
     <button class="tab" id="tab-newblock-btn" onclick="showTab('newblock')">+ New block</button>
     <button class="tab" id="tab-fit-btn" onclick="showTab('fit')">+ FIT ticket</button>
   </div>
@@ -196,6 +197,33 @@
       <button onclick="createFitTicket()">Issue ticket</button>
     </div>
   </div>
+
+  <div id="tab-newsale" class="hidden">
+    <div class="panel" style="max-width:640px;">
+      <div style="font-size:15px;font-weight:500;text-align:center;margin-bottom:16px;">Sales Register — new entry</div>
+
+      <div class="req-grid">
+        <div class="req-card"><div class="req-card-head">Block</div>
+          <select id="ns-block" onchange="recalcSeatsRemaining()"></select></div>
+        <div class="req-card"><div class="req-card-head">PNR</div><input id="ns-pnr" oninput="this.value=this.value.toUpperCase()"></div>
+      </div>
+      <div class="req-grid" style="margin-top:10px;">
+        <div class="req-card"><div class="req-card-head">Sold To</div><input id="ns-customer" placeholder="Customer or agent name"></div>
+        <div class="req-card"><div class="req-card-head">No of Seats Sold</div><input id="ns-seats" type="number" oninput="recalcSeatsRemaining()"></div>
+        <div class="req-card"><div class="req-card-head">Sale Price per Seat</div><input id="ns-price" type="number"></div>
+        <div class="req-card"><div class="req-card-head">Seats Remaining</div><input id="ns-remaining" readonly value="-"></div>
+      </div>
+
+      <div class="req-section-label">Sell remaining seats to another buyer (optional)</div>
+      <div class="req-grid">
+        <div class="req-card"><div class="req-card-head">Remaining Seats Sold To</div><input id="ns2-customer"></div>
+        <div class="req-card"><div class="req-card-head">No of Seats Sold from Remaining</div><input id="ns2-seats" type="number"></div>
+        <div class="req-card"><div class="req-card-head">Sale Price per Seat</div><input id="ns2-price" type="number"></div>
+      </div>
+
+      <button style="margin-top:16px;" onclick="submitNewSale()">Record sale</button>
+    </div>
+  </div>
 </div>
 
 <!-- ============ SELL SEATS MODAL ============ -->
@@ -284,10 +312,11 @@ async function login() {
 function logout() { localStorage.removeItem('alhuda_token'); location.reload(); }
 
 function showTab(name) {
-  ['blocks','sales','newblock','fit'].forEach(t => {
+  ['blocks','sales','newblock','fit','newsale'].forEach(t => {
     document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
     document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === name);
   });
+  if (name === 'newsale') populateBlockDropdown();
 }
 
 function money(n) { return '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 0 }); }
@@ -296,8 +325,11 @@ async function loadAll() {
   await Promise.all([loadBlocks(), loadSales(), loadSummary()]);
 }
 
+let cachedBlocks = [];
+
 async function loadBlocks() {
   const blocks = await api('/api/airline-blocks');
+  cachedBlocks = blocks;
   const body = document.getElementById('blocks-body');
   body.innerHTML = blocks.map(b => {
     const remaining = b.seats_remaining;
@@ -548,7 +580,61 @@ async function createBlock() {
   } catch (e) { toast(e.message, 'red'); }
 }
 
-let cancellingBookingId = null;
+function populateBlockDropdown() {
+  const sel = document.getElementById('ns-block');
+  const openBlocks = cachedBlocks.filter(b => b.seats_remaining > 0);
+  sel.innerHTML = openBlocks.map(b =>
+    `<option value="${b.id}">${b.flight_number} · ${b.outbound_sector_route || (b.sector_from + '-' + b.sector_to)} · ${b.seats_remaining} left</option>`
+  ).join('') || '<option value="">No open blocks with seats available</option>';
+  recalcSeatsRemaining();
+}
+
+function recalcSeatsRemaining() {
+  const block = cachedBlocks.find(b => b.id === document.getElementById('ns-block').value);
+  const sold = parseInt(document.getElementById('ns-seats').value, 10) || 0;
+  const out = document.getElementById('ns-remaining');
+  out.value = block ? Math.max(0, block.seats_remaining - sold) : '-';
+}
+
+async function submitNewSale() {
+  try {
+    const blockId = document.getElementById('ns-block').value;
+    if (!blockId) throw new Error('Select a block');
+    const block = cachedBlocks.find(b => b.id === blockId);
+
+    const pnr = document.getElementById('ns-pnr').value.trim().toUpperCase();
+    const customerName = document.getElementById('ns-customer').value.trim();
+    const seats = parseInt(document.getElementById('ns-seats').value, 10);
+    const price = parseFloat(document.getElementById('ns-price').value);
+    if (!pnr || !customerName || !seats || !price) throw new Error('Fill in PNR, Sold To, seats, and price');
+
+    const customer = await api('/api/customers', { method: 'POST', body: JSON.stringify({ name: customerName }) });
+    await api('/api/bookings', { method: 'POST', body: JSON.stringify({
+      booking_type: 'BLOCK', block_id: blockId, pnr, customer_id: customer.id,
+      passenger_names: [customerName], seats_booked: seats,
+      sale_price_per_seat: price, cost_price_per_seat: block.cost_per_seat,
+    })});
+
+    // Optional second-buyer split — reuses the same PNR with a "-R" suffix
+    // since each booking on a block needs a unique PNR in the system.
+    const cust2Name = document.getElementById('ns2-customer').value.trim();
+    const seats2 = parseInt(document.getElementById('ns2-seats').value, 10);
+    const price2 = parseFloat(document.getElementById('ns2-price').value);
+    if (cust2Name && seats2 && price2) {
+      const customer2 = await api('/api/customers', { method: 'POST', body: JSON.stringify({ name: cust2Name }) });
+      await api('/api/bookings', { method: 'POST', body: JSON.stringify({
+        booking_type: 'BLOCK', block_id: blockId, pnr: pnr + '-R', customer_id: customer2.id,
+        passenger_names: [cust2Name], seats_booked: seats2,
+        sale_price_per_seat: price2, cost_price_per_seat: block.cost_per_seat,
+      })});
+    }
+
+    toast('Sale recorded. Sales register and Sheets updated.', 'green');
+    ['ns-pnr','ns-customer','ns-seats','ns-price','ns2-customer','ns2-seats','ns2-price'].forEach(id => document.getElementById(id).value = '');
+    showTab('sales');
+    loadAll();
+  } catch (e) { toast(e.message, 'red'); }
+}
 
 function openCancelModal(bookingId, billedAmount) {
   cancellingBookingId = bookingId;
